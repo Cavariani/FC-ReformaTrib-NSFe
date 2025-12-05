@@ -36,9 +36,24 @@ namespace FC.NFSe.Sandbox.Builder
                 new XElement("CodigoServico", nota.CodigoServico),
                 new XElement("AliquotaServicos", F(0.05m)),
                 new XElement("ISSRetido", nota.IssRetido.ToString().ToLower()),
+
+                // TOMADOR
                 new XElement("CPFCNPJTomador",
                     new XElement("CNPJ", nota.CNPJTomador)
                 ),
+
+                // 🔴 BLOCO CORRIGIDO (Tags renomeadas para NumeroEndereco e ComplementoEndereco)
+                new XElement("EnderecoTomador",
+                    new XElement("Logradouro", nota.LogradouroTomador),
+                    new XElement("NumeroEndereco", nota.NumeroTomador),         // ✅ Corrigido
+                    new XElement("ComplementoEndereco", nota.ComplementoTomador), // ✅ Corrigido
+                    new XElement("Bairro", nota.BairroTomador),
+                    new XElement("Cidade", nota.CodigoMunicipio),
+                    new XElement("UF", nota.UFTomador),
+                    new XElement("CEP", nota.CepTomador)
+                ),
+                // 🔴 FIM DO BLOCO
+
                 new XElement("Discriminacao", nota.DescricaoServico),
 
                 // -- CAMPOS DA VERSÃO 2 (REFORMA TRIBUTÁRIA) --
@@ -47,27 +62,20 @@ namespace FC.NFSe.Sandbox.Builder
                 new XElement("ExigibilidadeSuspensa", "0"),
                 new XElement("PagamentoParceladoAntecipado", "0"),
 
-                // ✅ CORREÇÃO: NBS Válido para Software (1.15.01.00)
+                // NBS Válido para Software
                 new XElement("NBS", "115010000"),
 
                 new XElement("cLocPrestacao", "3550308"), // Código IBGE SP
 
-                // ... (código anterior)
-
                 new XElement("IBSCBS",
                     new XElement("finNFSe", "0"),
                     new XElement("indFinal", "1"),
-
-                    // ✅ cIndOp: 100101 (Este funcionou! Mantenha)
                     new XElement("cIndOp", "100101"),
-
                     new XElement("indDest", "0"),
                     new XElement("valores",
                         new XElement("trib",
                             new XElement("gIBSCBS",
-
-                                // 🔴 CORREÇÃO DO ERRO 628
-                                // Mude de "101001" para "000001" (Código Padrão/Exemplo do Manual)
+                                // Código Padrão de Tributação
                                 new XElement("cClassTrib", "000001")
                             )
                         )

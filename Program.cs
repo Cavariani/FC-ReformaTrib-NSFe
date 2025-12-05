@@ -1,134 +1,107 @@
 ﻿using FC.NFSe.Sandbox.Models;
-using FC.NFSe.Sandbox.Builder;
-using FC.NFSe.Sandbox.Xml;
 using FC.NFSe.Sandbox.Services;
-using System.Xml.Linq;
-using System.Threading.Tasks;
-using System.Security.Cryptography.X509Certificates;
-using System.IO;
+using FC.NFSe.Sandbox.Util;
 using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Threading.Tasks;
 
-// Ponto de entrada da aplicação
+// Ponto de entrada
 await MainAsync();
 
 static async Task MainAsync()
 {
-    Console.WriteLine("🚀 Iniciando processo de envio NFSe v2 (Reforma Tributária - SÍNCRONO)...");
+    Console.Clear();
+    Console.WriteLine("==============================================");
+    Console.WriteLine("   🚀 EMISSOR DE NFSe SP - TERMINAL v2.0");
+    Console.WriteLine("==============================================\n");
 
-    string caminhoPfx = "MACSO.pfx";
-    string senhaPfx = "BC1200";
+    // CONFIGURAÇÃO
+    string certPath = "MACSO.pfx";
+    string certPass = "BC1200";
 
-    if (!File.Exists(caminhoPfx))
+    try
     {
-        Console.WriteLine($"❌ Arquivo .pfx não encontrado: {Path.GetFullPath(caminhoPfx)}");
-        return;
-    }
+        // 1. Prepara o Motor
+        var emissor = new EmissorService(certPath, certPass);
 
-    var cert = new X509Certificate2(
-        caminhoPfx,
-        senhaPfx,
-        X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable
-    );
+        // 2. Coleta Dados do Usuário (Interatividade)
+        Console.Write("Digite o CNPJ/CPF do Cliente (somente números): ");
+        string docCliente = Console.ReadLine();
 
-    // 1. DADOS DA NOTA (Ajustados para passar nas regras de negócio)
-    var notas = new List<NotaFiscal>
-    {
-        new NotaFiscal
+        Console.Write("Digite o Valor do Serviço (ex: 150.00): ");
+        string valorString = Console.ReadLine();
+        if (!decimal.TryParse(valorString, out decimal valorServico)) valorServico = 100.00M;
+
+        Console.Write("Descrição do Serviço: ");
+        string descricao = Console.ReadLine();
+
+        // 3. Obtém RPS Automático
+        string proximoRps = GerenciadorSequencia.ObterProximoRps();
+        Console.WriteLine($"\n🔢 Gerando RPS Sequencial Nº: {proximoRps}...");
+
+        // 4. Monta a Nota (Dados Dinâmicos + Configurações Fixas)
+        var nota = new NotaFiscal
         {
-            // Incrementei para 0003 para evitar erro de duplicidade
-            NumeroRPS = "0003",
+            NumeroRPS = proximoRps,
             Serie = "AAAAA",
             DataEmissao = DateTime.Today,
-            
-            // ✅ CORREÇÃO 1: Seu CCM real (sem pontos)
-            InscricaoMunicipalPrestador = "40095380", 
-            
-            // ✅ CORREÇÃO 2: Seu CNPJ (Dono do certificado)
-            CNPJPrestador = "05379035000105",
-            RazaoSocialPrestador = "MACSO LEGATE TECNOLOGIA E SISTEMAS",
-            
-            // Tomador = Prestador (Auto-emissão para teste)
-            CNPJTomador = "05379035000105",
-            RazaoSocialTomador = "MACSO LEGATE (AUTO TESTE)",
-            EnderecoTomador = "Rua X, 123",
-            CodigoMunicipio = "3550308", // São Paulo
-            
-            ValorServicos = 1500.00M,
-            ValorIBS = 1.50M,
-            ValorCBS = 13.50M,
-            
-            // ✅ CORREÇÃO 3: Código de Serviço da sua Ficha (02800 = Software)
-            CodigoServico = "02800",
-            DescricaoServico = "Desenvolvimento de software customizavel - Teste API V2",
 
+            // PRESTADOR (Você)
+            InscricaoMunicipalPrestador = "40095380",
+            CNPJPrestador = "05379035000105",
+            RazaoSocialPrestador = "MACSO LEGATE TECNOLOGIA",
+
+            // TOMADOR (Cliente)
+            CNPJTomador = docCliente,
+            RazaoSocialTomador = "CLIENTE INFORMADO NO TERMINAL", // Em prod, você buscaria o nome no banco
+
+            // Endereço (Mantive fixo para teste, mas poderia pedir também)
+            LogradouroTomador = "Avenida Paulista",
+            NumeroTomador = "2000",
+            ComplementoTomador = "Conj 12",
+            BairroTomador = "Bela Vista",
+            CodigoMunicipio = "3550308",
+            UFTomador = "SP",
+            CepTomador = "01310100",
+
+            // Valores e Impostos
+            ValorServicos = valorServico,
+            ValorIBS = valorServico * 0.01M, // 1% Simbólico
+            ValorCBS = valorServico * 0.09M, // 9% Simbólico
+
+            CodigoServico = "02800",
+            DescricaoServico = descricao,
             IssRetido = false,
             TipoTributacao = "T"
+        };
+
+        // 5. Envia
+        Console.WriteLine("\n📡 Enviando para a Prefeitura...");
+        var retorno = await emissor.EmitirNotaAsync(nota, modoTeste: true);
+
+        // 6. Resultado
+        Console.WriteLine("\n----------------------------------------------");
+        if (retorno != null && retorno.Cabecalho.Sucesso)
+        {
+            Console.WriteLine($"✅ SUCESSO! Nota de R$ {valorServico:N2} emitida.");
+            if (retorno.Alertas != null)
+                foreach (var a in retorno.Alertas) Console.WriteLine($"⚠️ [Alerta] {a.Descricao}");
         }
-    };
+        else
+        {
+            Console.WriteLine("❌ FALHA NA EMISSÃO.");
+            if (retorno?.Erros != null)
+                foreach (var e in retorno.Erros) Console.WriteLine($"🚫 {e.Descricao}");
+            else
+                Console.WriteLine("🚫 Erro desconhecido de comunicação.");
+        }
+        Console.WriteLine("----------------------------------------------");
 
-    // 2. BUILDER DO LOTE (Com prefixo nfe:)
-    var cnpjRemetente = notas.First().CNPJPrestador;
-    var xmlLote = LoteNfseBuilder.CriarLoteXml(rpsList: CreateRpsList(notas, cert), cnpjRemetente);
-
-    string caminhoXml = Path.Combine(Directory.GetCurrentDirectory(), "lote.xml");
-    xmlLote.Save(caminhoXml);
-    Console.WriteLine($"📁 XML gerado em: {caminhoXml}");
-
-    // 3. ASSINATURA
-    string caminhoXmlAssinado = Path.Combine(Directory.GetCurrentDirectory(), "lote_assinado.xml");
-    try
-    {
-        XmlAssinador.AssinarXml(caminhoXml, caminhoXmlAssinado, caminhoPfx, senhaPfx);
-        Console.WriteLine("🔏 Lote assinado com sucesso.");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"❌ Erro ao assinar: {ex.Message}");
-        return;
+        Console.WriteLine($"💀 Erro fatal: {ex.Message}");
     }
 
-    // 4. VALIDAÇÃO XSD (Síncrono v2)
-    string[] schemas = new[]
-    {
-        Path.Combine("Xml", "Schemas", "PedidoEnvioLoteRPS_v02.xsd"),
-        Path.Combine("Xml", "Schemas", "TiposNFe_v02.xsd"),
-        Path.Combine("Xml", "Schemas", "xmldsig-core-schema_v02.xsd")
-    };
-
-    Console.WriteLine("🔍 Verificando estrutura XSD local...");
-    bool isLocalValid = XmlValidador.ValidarXml(caminhoXmlAssinado, schemas, out var erros);
-
-    if (isLocalValid)
-        Console.WriteLine("✅ Lote XML válido localmente!");
-    else
-    {
-        Console.WriteLine("⚠️ Validação local falhou (mas vamos tentar enviar): " + erros);
-    }
-
-    // 5. ENVIO SÍNCRONO (SOAP 1.2)
-    try
-    {
-        await EnvioWebService.EnviarLoteAssinadoAsync(
-            caminhoXmlAssinado,
-            caminhoPfx,
-            senhaPfx,
-            modoTeste: true
-        );
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine("❌ Erro fatal: " + ex.Message);
-    }
-
-    Console.WriteLine("\n🏁 Fim.");
+    Console.WriteLine("\nPressione qualquer tecla para sair...");
     Console.ReadKey();
-}
-
-static List<XElement> CreateRpsList(List<NotaFiscal> notas, X509Certificate2 cert)
-{
-    var list = new List<XElement>();
-    foreach (var n in notas) list.Add(NotaFiscalXmlBuilder.GerarXmlRps(n, cert));
-    return list;
 }
