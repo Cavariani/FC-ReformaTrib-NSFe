@@ -1,0 +1,8 @@
+# Ignorar pastas de build
+bin/
+obj/
+.vs/
+.vscode/
+
+# Ignorar certificado digital (Segurança)
+*.pfx
